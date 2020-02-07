@@ -230,6 +230,7 @@ public:
     friend class ModeThrow;
     friend class ModeZigZag;
     friend class ModeAutorotate;
+    friend class ModeBIRD; // added line of code by Luis Orozco on 1/28/20
 
     Copter(void);
 
@@ -958,6 +959,12 @@ private:
 #if MODE_AUTOROTATE_ENABLED == ENABLED
     ModeAutorotate mode_autorotate;
 #endif
+    
+// lines of code added by Luis Orozco on 1/28/20
+#if MODE_BIRD_ENABLED == ENABLED
+    ModeBIRD mode_bird;
+#endif
+//
 
     // mode.cpp
     Mode *mode_from_mode_num(const Mode::Number mode);
