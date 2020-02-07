@@ -169,6 +169,14 @@ Mode *Copter::mode_from_mode_num(const Mode::Number mode)
             break;
 #endif
 
+// lines of code added by Luis Orozco on 1/28/20
+#if MODE_BIRD_ENABLED == ENABLED
+        case Mode::Number::BIRD_MODE:
+            ret = &mode_bird;
+            break;
+#endif
+//
+
         default:
             break;
     }
