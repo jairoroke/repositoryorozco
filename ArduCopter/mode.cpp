@@ -175,6 +175,13 @@ Mode *Copter::mode_from_mode_num(const Mode::Number mode)
             ret = &mode_bird;
             break;
 #endif
+            
+// lines of code added by Luis Orozco on 2/7/20
+#if MODE_SHUTDOWN_ENABLED == ENABLED
+        case Mode::Number::SHUTDOWN_MODE:
+            ret = &mode_shutdown;
+            break;
+#endif
 //
 
         default:
