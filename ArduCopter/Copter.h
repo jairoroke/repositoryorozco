@@ -231,6 +231,7 @@ public:
     friend class ModeZigZag;
     friend class ModeAutorotate;
     friend class ModeBIRD; // added line of code by Luis Orozco on 1/28/20
+    friend class ModeShutdown; // added line of code by Luis Orozco on 1/28/20
 
     Copter(void);
 
@@ -963,6 +964,11 @@ private:
 // lines of code added by Luis Orozco on 1/28/20
 #if MODE_BIRD_ENABLED == ENABLED
     ModeBIRD mode_bird;
+#endif
+
+// lines of code added by Luis Orozco on 2/7/20
+#if MODE_SHUTDOWN_ENABLED == ENABLED
+    ModeShutdown mode_shutdown;
 #endif
 //
 
