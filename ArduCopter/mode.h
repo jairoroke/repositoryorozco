@@ -37,6 +37,7 @@ public:
         SYSTEMID  =    25,  // System ID mode produces automated system identification signals in the controllers
         AUTOROTATE =   26,  // Autonomous autorotation
         BIRD_MODE =    27,  // Crane Tech's development mode that allows drone to follow a wall for scanning purposes
+        SHUTDOWN_MODE = 28, // Crane Tech's development mode that allows drone to kill all power to motors
     };
 
     // constructor
@@ -1532,6 +1533,33 @@ protected:
 
     const char *name() const override { return "BIRD_MODE"; } // method for logging and display purposes
     const char *name4() const override { return "BIRDM"; } // method for logging and display purposes
+
+private:
+
+};
+
+
+/*
+ *   Additional lines of code added by Luis Orozco 
+ *   As of 1/28/20, SHUTDOWN_MODE will follow stabilize mode, which is manual flight
+ */
+class ModeShutdown : public Mode {
+
+public:
+    // inherit constructor
+    using Mode::Mode;
+    bool init(bool ignore_checks) override; // will be called when the vehicle first swithes into this new mode so it should implement any required initialisation
+    virtual void run() override; // will be called at 400 Hz and should implement any pilot input decoding and then set potision and attitude targets
+
+    bool requires_GPS() const override { return false; }
+    bool has_manual_throttle() const override { return true; }
+    bool allows_arming(bool from_gcs) const override { return true; };
+    bool is_autopilot() const override { return false; }
+
+protected:
+
+    const char *name() const override { return "SHUTDOWN_MODE"; } // method for logging and display purposes
+    const char *name4() const override { return "SHUTDOWN_M"; } // method for logging and display purposes
 
 private:
 
