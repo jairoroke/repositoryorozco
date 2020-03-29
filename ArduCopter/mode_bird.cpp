@@ -4,12 +4,34 @@
 ** Author: Luis Orozco
 ** File: overlay.py
 ** Description: 
-   File responsible for holding functions necessary for overlaying textual information
-   on video frames taken by the camera and saving videos onboard the raspberry pi
+   Flight mode responsible for maintaining a certain distance from the wall and 
+   following the following predefine flight path: up, right, down, right, 
+   continously until the wall ends. 
  */
 
 
 #include "Copter.h"
+#include "linux/types.h"
+#include "cstdio"
+#include <AP_RangeFinder/AP_RangeFinder_I2C_Sensors.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <cstdlib>
+
+static int count = 0;
+static int counter = 0;
+static int counter2 = 0;
+static int state = 0;
+static __u16 previous_altitude = 0;
+static __u16 current_altitude = 0;
+static __u16 delta_altitude = 0;
+static __u8  busyFlag = 0;
+
+static __u16 reading = 150;
+char messageSent[20];
+
+I2CSensors sensor;
 
 
 /* 
@@ -22,23 +44,28 @@
     - ignore_checks: boolean values to determine whether or not to ignore checks
 
 ** Return:
-    - value signifying whether or not it is okay to enter mode
 
 ** Notes:
  */
 bool ModeBIRD::init(bool ignore_checks)
 {
-    // if (!ignore_checks) {
-        // if (!AP::ahrs().home_is_set()) {
-        //     return false;
-        // }
-    // }
+    
+    sensor.i2c_init();
+    sensor.sonarTakeRange();
+    sensor.garmin_configure(0);
+    sensor.garminTakeRange();
 
-    // initialise waypoint and spline controller
-    // wp_nav->wp_and_spline_init();
-    // _state = RTL_Starting;
-    // _state_complete = true; // see run() method below
-    // terrain_following_allowed = !copter.failsafe.terrain;
+    // should be a lidar reading
+    busyFlag = sensor.garminGetBusyFlag();
+
+    if (busyFlag == 0x00)
+    {
+        previous_altitude = sensor.garminReadDistance();
+        sensor.garminTakeRange();
+    }
+
+    auto_yaw.set_mode(AUTO_YAW_HOLD);
+
 
     return true;
 }
@@ -47,79 +74,382 @@ bool ModeBIRD::init(bool ignore_checks)
 /*
 ** Name: run
 
-** Description: recevies commands from transmitter, pilot's inputs, and converts
-    them to motor values
+** Description: will follow predefined path, up, right, down, right, until it 
+    completes a section of the wall. 
 
 ** Parameters: none
 
 ** Return: none
 
 ** Notes:
-    stabilize_run - runs the main stabilize controller
-    should be called at 100hz or more
+    should be called at 400 Hz becasue of this mode needs to be fast and efficient
  */
 void ModeBIRD::run()
 {
-    // apply simple mode transform to pilot inputs
-    update_simple_mode();
+    
+    // define roll, pitch, and yaw
+    float target_roll = 0.0f;
+    float target_pitch = 0.0f;
+    float target_yaw_rate = 0.0f;
 
-    // convert pilot input to lean angles
-    float target_roll, target_pitch;
-    get_pilot_desired_lean_angles(target_roll, target_pitch, copter.aparm.angle_max, copter.aparm.angle_max);
+    // capture current altitude from lidar reading
+    current_altitude = sensor.garminReadDistance();
+    sensor.garminTakeRange();
 
-    // get pilot's desired yaw rate
-    float target_yaw_rate = get_pilot_desired_yaw_rate(channel_yaw->get_control_in());
-
-    if (!motors->armed()) 
+    // determine change in altitude from state to state
+    // such as, how much has the drone moved in state 0
+    delta_altitude = abs(previous_altitude - current_altitude);
+    
+    // capture sonar reading when counter expires
+    if(counter2 > 50)
     {
-        // Motors should be Stopped
-        motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::SHUT_DOWN);
-    } 
-
-    else if (copter.ap.throttle_zero) 
-    {
-        // Attempting to Land
-        motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::GROUND_IDLE);
-    } 
-
-    else 
-    {
-        motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+        //
+        reading = sensor.sonarGetRangeRead();
+        sensor.sonarTakeRange();
+        counter2 = 0;
     }
 
-    switch (motors->get_spool_state()) 
+    else
     {
-    case AP_Motors::SpoolState::SHUT_DOWN:
-        // Motors Stopped
-        attitude_control->set_yaw_target_to_current_heading();
-        attitude_control->reset_rate_controller_I_terms();
-        break;
+        //
+        counter2 += 1;
+    }
 
-    case AP_Motors::SpoolState::GROUND_IDLE:
-        // Landed
-        attitude_control->set_yaw_target_to_current_heading();
-        attitude_control->reset_rate_controller_I_terms();
-        break;
+    // carry out the function of the specific state
+    switch(state)
+    {
+        // state 0: Ascend
+        case 0:
+            // ascend
+            auto_yaw.set_mode(AUTO_YAW_HOLD);
+            attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target_roll, target_pitch, target_yaw_rate);
+            bird_run_ascend_control();
 
-    case AP_Motors::SpoolState::THROTTLE_UNLIMITED:
-        // clear landing flag above zero throttle
-        if (!motors->limit.throttle_lower) 
-        {
-            set_land_complete(false);
-        }
-        break;
+            // reading is beyond the expected range
+            if(reading > 400)
+            {
+                // has the drone moved more than 1.5 meters and 2 meters
+                if(delta_altitude >= 150 && delta_altitude <= 200)
+                {
+                    // wall has ended and it is time to land
+                    copter.set_mode(Mode::Number::LAND, ModeReason::UNKNOWN);
+                }
 
-    case AP_Motors::SpoolState::SPOOLING_UP:
-    case AP_Motors::SpoolState::SPOOLING_DOWN:
-        // do nothing
-        break;
+                // if the drone has moved more than 2 meters
+                if(delta_altitude > 200)
+                {
+                    // it is time to switch to the next state
+                    state++;
+                    previous_altitude = current_altitude;
+                    break;
+                }
+
+            }
+
+            // does the drone need to move forward to correct itself
+            if(reading =< 400 && reading >= 200)
+            {
+                bird_run_move_forward(0, -1000, 0); // 1:target_roll , 2:target_pitch , 3:target_yaw_rate
+            }
+
+            // does the drone need to move backward to correct itself
+            if(reading <= 100)
+            {
+                bird_run_move_backward(0, 1000, 0); // 1:target_roll , 2:target_pitch , 3:target_yaw_rate
+            }
+
+            break;
+
+        // state 1: move right
+        case 1:
+            // count value is hypothetical
+            // fruther testing require to find value to move 1.4 m to the right
+            if(count < 500)
+            {
+                bird_run_move_right(1000, 0, 0); // 1:target_roll , 2:target_pitch , 3:target_yaw_rate
+                count++;
+            }
+            
+            // reset state
+            else
+            {
+                state++;
+                count = 0;
+            }
+
+            break;
+
+        // state 2: descend
+        case 2:
+            // descend
+            auto_yaw.set_mode(AUTO_YAW_HOLD);
+            attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target_roll, target_pitch, target_yaw_rate);
+            bird_run_descend_control();
+
+            // is the drone 1 meter or less above the ground
+            if(current_altitude <= 100)
+            {   
+                // time to move on to the next state
+                state++;
+                previous_altitude = current_altitude;
+                break;
+            }
+
+            // reading is beyond the expected range
+            if(reading > 400)
+            {
+                // has the drone moved more than 1.5 meters 
+                if(delta_altitude >= 150)
+                {
+                    // there is no wall as the drone is descending
+                    // wall has ended and time to land
+                    copter.set_mode(Mode::Number::LAND, ModeReason::UNKNOWN);
+                }
+
+            }
+
+            // does the drone need to move forward to correct itself 
+            if(reading =< 400 && reading >= 200)
+            {
+                bird_run_move_forward(0, -1000, 0); // 1:target_roll , 2:target_pitch , 3:target_yaw_rate
+            }
+
+            // does the drone need to move backward to correct itself
+            if(reading <= 100)
+            {
+
+                bird_run_move_backward(0, 1000, 0); // 1:target_roll , 2:target_pitch , 3:target_yaw_rate
+            }
+
+            break;
+
+        // state 3: move right
+        case 3:
+            // count value is hypothetical
+            // fruther testing require to find value to move 1.4 m to the right
+            if(count < 500)
+            {                
+                bird_run_move_right(1000, 0, 0); // 1:target_roll , 2:target_pitch , 3:target_yaw_rate
+                count++;
+            }
+            
+            // reset state
+            else
+            {
+                state = 0;
+                count = 0;
+            }
+
+            break;
+
+        // default
+        default:
+            state = 0;
+            count = 0;
+            break;
+
+    }
+
+    // for debugging; will send a message to ground station for user to see state
+    if(counter >= 800)
+    {
+        //
+        counter = 0;
+
+        gcs().send_text(MAV_SEVERITY_INFO, "State: ");
+        snprintf(messageSent, sizeof(messageSent), "%d", state);
+        gcs().send_text(MAV_SEVERITY_INFO, messageSent);
+
+    }
+
+    else
+    {
+        //
+        counter += 1;
+    }
+
+}
+
+
+/* 
+** Name: bird_run_ascend_control
+
+** Description: it is a copy of land mode function called descend control,
+    has been modified such that it uses the max speed up so it ascends
+    rather than descend
+
+** Parameters:
+    N/A
+
+** Return:
+    N/A
+
+** Notes:
+ */
+void ModeBIRD::bird_run_ascend_control()
+{
+    //
+    float cmb_rate = 0;
+    float max_land_ascend_velocity;
+    motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+    
+    max_land_ascend_velocity = pos_control->get_max_speed_up();
+
+    // Don't speed up for ascension
+    max_land_ascend_velocity = MIN(max_land_ascend_velocity, abs(g.land_speed));
+
+    // Compute a vertical velocity demand such that the vehicle approaches g2.land_alt_low. Without the below constraint, this would cause the vehicle to hover at g2.land_alt_low.
+    cmb_rate = AC_AttitudeControl::sqrt_controller(MAX(g2.land_alt_low,100)-get_alt_above_ground_cm(), pos_control->get_pos_z_p().kP(), pos_control->get_max_accel_z(), G_Dt);
+
+    // Constrain the demanded vertical velocity so that it is between the configured maximum descent speed and the configured minimum descent speed.
+    cmb_rate = constrain_float(cmb_rate, max_land_ascend_velocity, abs(g.land_speed));
+
+
+    // update altitude target and call position controller
+    pos_control->set_alt_target_from_climb_rate_ff(cmb_rate, G_Dt, true);
+    pos_control->update_z_controller();
+}
+
+
+/* 
+** Name: bird_run_descend_control
+
+** Description: it is a copy of land mode function called descend control
+
+** Parameters:
+    N/A
+
+** Return:
+    N/A
+
+** Notes:
+ */
+void ModeBIRD::bird_run_descend_control()
+{
+    float cmb_rate = 0;
+    float max_land_descent_velocity;
+    motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+
+    max_land_descent_velocity = pos_control->get_max_speed_down();
+
+    // Don't speed up for landing.
+    max_land_descent_velocity = MIN(max_land_descent_velocity, -abs(g.land_speed));
+
+    // Compute a vertical velocity demand such that the vehicle approaches g2.land_alt_low. Without the below constraint, this would cause the vehicle to hover at g2.land_alt_low.
+    cmb_rate = AC_AttitudeControl::sqrt_controller(MAX(g2.land_alt_low,100)-get_alt_above_ground_cm(), pos_control->get_pos_z_p().kP(), pos_control->get_max_accel_z(), G_Dt);
+
+    // Constrain the demanded vertical velocity so that it is between the configured maximum descent speed and the configured minimum descent speed.
+    cmb_rate = constrain_float(cmb_rate, max_land_descent_velocity, -abs(g.land_speed));
+
+    // update altitude target and call position controller
+    pos_control->set_alt_target_from_climb_rate_ff(cmb_rate, G_Dt, true);
+    pos_control->update_z_controller();
+}
+
+
+/* 
+** Name: bird_run_move_forward
+
+** Description: move the drone forward
+
+** Parameters:
+    - target_roll: desired value for roll
+    - target_pitch: desired value for pitch
+    - target_yaw_rate: desured value for yaw
+
+** Return:
+    N/A
+
+** Notes:
+ */
+void ModeBIRD::bird_run_move_forward(float target_roll, float target_pitch, float target_yaw_rate)
+{
+    // apply simple mode transform to pilot inputs
+    update_simple_mode();
+    motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+
+    // get pilot's desired yaw rate
+    if (!is_zero(target_yaw_rate)) 
+    {
+        auto_yaw.set_mode(AUTO_YAW_HOLD);
+    }
+
+
+    // call attitude controller
+    attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target_roll, target_pitch, target_yaw_rate);
+
+    // output pilot's throttle
+    attitude_control->set_throttle_out(0, true, g.throttle_filt);
+}
+
+
+/* 
+** Name: bird_run_move_backward
+
+** Description: will move the drone backward
+
+** Parameters:
+    - target_roll: desired value for roll
+    - target_pitch: desired value for pitch
+    - target_yaw_rate: desured value for yaw
+
+** Return:
+    N/A
+
+** Notes:
+ */
+void ModeBIRD::bird_run_move_backward(float target_roll, float target_pitch, float target_yaw_rate)
+{
+    // apply simple mode transform to pilot inputs
+    update_simple_mode();
+    motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+
+    // get pilot's desired yaw rate
+    if (!is_zero(target_yaw_rate)) 
+    {
+        auto_yaw.set_mode(AUTO_YAW_HOLD);
+    }
+
+
+    // call attitude controller
+    attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target_roll, target_pitch, target_yaw_rate);
+
+    // output pilot's throttle
+    attitude_control->set_throttle_out(0, true, g.throttle_filt);   
+}
+
+
+/* 
+** Name: bird_run_move_right
+
+** Description: will move the drone to the right 
+
+** Parameters:
+    - target_roll: desired roll
+    - target_pitch: desired pitch
+    - target_yaw_rate: desired yaw
+
+** Return:
+    N/A
+
+** Notes:
+ */
+void ModeBIRD::bird_run_move_right(float target_roll, float target_pitch, float target_yaw_rate)
+{
+    // apply simple mode transform to pilot inputs
+    update_simple_mode();
+    motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+
+    // get pilot's desired yaw rate
+    if (!is_zero(target_yaw_rate)) 
+    {
+        auto_yaw.set_mode(AUTO_YAW_HOLD);
     }
 
     // call attitude controller
     attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target_roll, target_pitch, target_yaw_rate);
 
     // output pilot's throttle
-    attitude_control->set_throttle_out(get_pilot_desired_throttle(),
-                                       true,
-                                       g.throttle_filt);
+    attitude_control->set_throttle_out(0, true, g.throttle_filt);   
 }
+
