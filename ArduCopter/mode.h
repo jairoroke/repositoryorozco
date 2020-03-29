@@ -1527,7 +1527,14 @@ public:
     bool requires_GPS() const override { return false; }
     bool has_manual_throttle() const override { return true; }
     bool allows_arming(bool from_gcs) const override { return true; };
-    bool is_autopilot() const override { return false; }
+    bool is_autopilot() const override { return true; }
+
+    void bird_run_ascend_control(void);
+    void bird_run_descend_control(void);
+    void bird_run_move_forward(float target_roll, float target_pitch, float target_yaw_rate);
+    void bird_run_move_backward(float target_roll, float target_pitch, float target_yaw_rate);
+    void bird_run_move_right(float target_roll, float target_pitch, float target_yaw_rate);
+    // void bird_run_alt_hold();
 
 protected:
 
@@ -1548,20 +1555,28 @@ class ModeShutdown : public Mode {
 public:
     // inherit constructor
     using Mode::Mode;
-    bool init(bool ignore_checks) override; // will be called when the vehicle first swithes into this new mode so it should implement any required initialisation
-    virtual void run() override; // will be called at 400 Hz and should implement any pilot input decoding and then set potision and attitude targets
 
-    bool requires_GPS() const override { return false; }
-    bool has_manual_throttle() const override { return true; }
-    bool allows_arming(bool from_gcs) const override { return true; };
+    bool init(bool ignore_checks) override;
+    void run() override;
+
+    bool requires_GPS() const override { return true; }
+    bool has_manual_throttle() const override { return false; }
+    bool allows_arming(bool from_gcs) const override { return false; };
     bool is_autopilot() const override { return false; }
+
+    void timeout_to_loiter_ms(uint32_t timeout_ms);
 
 protected:
 
-    const char *name() const override { return "SHUTDOWN_MODE"; } // method for logging and display purposes
-    const char *name4() const override { return "SHUTDOWN_M"; } // method for logging and display purposes
+    const char *name() const override { return "SHUTDOWN"; }
+    const char *name4() const override { return "SHUTDOWNM"; }
 
 private:
+
+    void init_target();
+
+    uint32_t _timeout_start;
+    uint32_t _timeout_ms;
 
 };
 //
