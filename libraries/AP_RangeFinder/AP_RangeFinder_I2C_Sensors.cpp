@@ -101,7 +101,7 @@ __u16 I2CSensors::sonari2cRead(__u8 sonarAddress)
 
   else
   {
-    reading_cm = (buffer[0] >> 8) | (buffer[1]);
+    reading_cm = (buffer[0] << 8) | buffer[1];
   }
 
   return reading_cm;
