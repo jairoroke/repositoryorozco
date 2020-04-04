@@ -1529,12 +1529,8 @@ public:
     bool allows_arming(bool from_gcs) const override { return true; };
     bool is_autopilot() const override { return true; }
 
-    void bird_run_ascend_control(void);
-    void bird_run_descend_control(void);
-    void bird_run_move_forward(float target_roll, float target_pitch, float target_yaw_rate);
-    void bird_run_move_backward(float target_roll, float target_pitch, float target_yaw_rate);
-    void bird_run_move_right(float target_roll, float target_pitch, float target_yaw_rate);
-    // void bird_run_alt_hold();
+    void bird_run_move_forward(int counter);
+    void bird_run_move_backward(int counter);
 
 protected:
 
