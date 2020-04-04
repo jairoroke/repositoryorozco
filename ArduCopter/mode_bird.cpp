@@ -4,9 +4,10 @@
 ** Author: Luis Orozco
 ** File: overlay.py
 ** Description: 
-   Flight mode responsible for maintaining a certain distance from the wall and 
-   following the following predefine flight path: up, right, down, right, 
-   continously until the wall ends. 
+   Flight mode responsible for simulating flight. A user must carry the drone and simulate
+   the flight path. Used to test the logic and flow of software without outputting 
+   power to the motors. Messages are sent to the ground station to show which state the 
+   drone is in. 
  */
 
 
@@ -66,6 +67,11 @@ bool ModeBIRD::init(bool ignore_checks)
 
     auto_yaw.set_mode(AUTO_YAW_HOLD);
 
+    gcs().send_text(MAV_SEVERITY_INFO, "State 0 = Ascend");
+    gcs().send_text(MAV_SEVERITY_INFO, "State 1 = Moving Right");
+    gcs().send_text(MAV_SEVERITY_INFO, "State 2 = Descend");
+    gcs().send_text(MAV_SEVERITY_INFO, "State 3 = Moving Right");
+
 
     return true;
 }
@@ -92,9 +98,14 @@ void ModeBIRD::run()
     float target_pitch = 0.0f;
     float target_yaw_rate = 0.0f;
 
-    // capture current altitude from lidar reading
-    current_altitude = sensor.garminReadDistance();
-    sensor.garminTakeRange();
+    // capture current lidar reading
+    busyFlag = sensor.garminGetBusyFlag();
+
+    if (busyFlag == 0x00)
+    {
+        current_altitude = sensor.garminReadDistance();
+        sensor.garminTakeRange();
+    }
 
     // determine change in altitude from state to state
     // such as, how much has the drone moved in state 0
@@ -121,9 +132,6 @@ void ModeBIRD::run()
         // state 0: Ascend
         case 0:
             // ascend
-            auto_yaw.set_mode(AUTO_YAW_HOLD);
-            attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target_roll, target_pitch, target_yaw_rate);
-            bird_run_ascend_control();
 
             // reading is beyond the expected range
             if(reading > 400)
@@ -133,6 +141,7 @@ void ModeBIRD::run()
                 {
                     // wall has ended and it is time to land
                     copter.set_mode(Mode::Number::LAND, ModeReason::UNKNOWN);
+                    break;
                 }
 
                 // if the drone has moved more than 2 meters
@@ -149,13 +158,15 @@ void ModeBIRD::run()
             // does the drone need to move forward to correct itself
             if(reading =< 400 && reading >= 200)
             {
-                bird_run_move_forward(0, -1000, 0); // 1:target_roll , 2:target_pitch , 3:target_yaw_rate
+                // move forward
+                bird_run_move_forward(counter);
             }
 
             // does the drone need to move backward to correct itself
             if(reading <= 100)
             {
-                bird_run_move_backward(0, 1000, 0); // 1:target_roll , 2:target_pitch , 3:target_yaw_rate
+                // move backward
+                bird_run_move_backward(counter);
             }
 
             break;
@@ -164,17 +175,19 @@ void ModeBIRD::run()
         case 1:
             // count value is hypothetical
             // fruther testing require to find value to move 1.4 m to the right
-            if(count < 500)
+            if(count < 800)
             {
-                bird_run_move_right(1000, 0, 0); // 1:target_roll , 2:target_pitch , 3:target_yaw_rate
+                // move right
                 count++;
             }
             
-            // reset state
+            // increment state
             else
             {
                 state++;
                 count = 0;
+                previous_altitude = current_altitude;
+                break;
             }
 
             break;
@@ -182,9 +195,6 @@ void ModeBIRD::run()
         // state 2: descend
         case 2:
             // descend
-            auto_yaw.set_mode(AUTO_YAW_HOLD);
-            attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target_roll, target_pitch, target_yaw_rate);
-            bird_run_descend_control();
 
             // is the drone 1 meter or less above the ground
             if(current_altitude <= 100)
@@ -204,6 +214,7 @@ void ModeBIRD::run()
                     // there is no wall as the drone is descending
                     // wall has ended and time to land
                     copter.set_mode(Mode::Number::LAND, ModeReason::UNKNOWN);
+                    break;
                 }
 
             }
@@ -211,14 +222,16 @@ void ModeBIRD::run()
             // does the drone need to move forward to correct itself 
             if(reading =< 400 && reading >= 200)
             {
-                bird_run_move_forward(0, -1000, 0); // 1:target_roll , 2:target_pitch , 3:target_yaw_rate
+                // move forward
+                bird_run_move_forward(counter);
             }
 
             // does the drone need to move backward to correct itself
             if(reading <= 100)
             {
 
-                bird_run_move_backward(0, 1000, 0); // 1:target_roll , 2:target_pitch , 3:target_yaw_rate
+                // move backward
+                bird_run_move_backward(counter);
             }
 
             break;
@@ -229,8 +242,9 @@ void ModeBIRD::run()
             // fruther testing require to find value to move 1.4 m to the right
             if(count < 500)
             {                
-                bird_run_move_right(1000, 0, 0); // 1:target_roll , 2:target_pitch , 3:target_yaw_rate
+                // move right
                 count++;
+                break;
             }
             
             // reset state
@@ -238,6 +252,8 @@ void ModeBIRD::run()
             {
                 state = 0;
                 count = 0;
+                previous_altitude = current_altitude;
+                break;
             }
 
             break;
@@ -251,12 +267,12 @@ void ModeBIRD::run()
     }
 
     // for debugging; will send a message to ground station for user to see state
-    if(counter >= 800)
+    if(counter >= 400)
     {
         //
         counter = 0;
 
-        gcs().send_text(MAV_SEVERITY_INFO, "State: ");
+        gcs().send_text(MAV_SEVERITY_INFO, "^^^ State ^^^");
         snprintf(messageSent, sizeof(messageSent), "%d", state);
         gcs().send_text(MAV_SEVERITY_INFO, messageSent);
 
@@ -272,85 +288,9 @@ void ModeBIRD::run()
 
 
 /* 
-** Name: bird_run_ascend_control
-
-** Description: it is a copy of land mode function called descend control,
-    has been modified such that it uses the max speed up so it ascends
-    rather than descend
-
-** Parameters:
-    N/A
-
-** Return:
-    N/A
-
-** Notes:
- */
-void ModeBIRD::bird_run_ascend_control()
-{
-    //
-    float cmb_rate = 0;
-    float max_land_ascend_velocity;
-    motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
-    
-    max_land_ascend_velocity = pos_control->get_max_speed_up();
-
-    // Don't speed up for ascension
-    max_land_ascend_velocity = MIN(max_land_ascend_velocity, abs(g.land_speed));
-
-    // Compute a vertical velocity demand such that the vehicle approaches g2.land_alt_low. Without the below constraint, this would cause the vehicle to hover at g2.land_alt_low.
-    cmb_rate = AC_AttitudeControl::sqrt_controller(MAX(g2.land_alt_low,100)-get_alt_above_ground_cm(), pos_control->get_pos_z_p().kP(), pos_control->get_max_accel_z(), G_Dt);
-
-    // Constrain the demanded vertical velocity so that it is between the configured maximum descent speed and the configured minimum descent speed.
-    cmb_rate = constrain_float(cmb_rate, max_land_ascend_velocity, abs(g.land_speed));
-
-
-    // update altitude target and call position controller
-    pos_control->set_alt_target_from_climb_rate_ff(cmb_rate, G_Dt, true);
-    pos_control->update_z_controller();
-}
-
-
-/* 
-** Name: bird_run_descend_control
-
-** Description: it is a copy of land mode function called descend control
-
-** Parameters:
-    N/A
-
-** Return:
-    N/A
-
-** Notes:
- */
-void ModeBIRD::bird_run_descend_control()
-{
-    float cmb_rate = 0;
-    float max_land_descent_velocity;
-    motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
-
-    max_land_descent_velocity = pos_control->get_max_speed_down();
-
-    // Don't speed up for landing.
-    max_land_descent_velocity = MIN(max_land_descent_velocity, -abs(g.land_speed));
-
-    // Compute a vertical velocity demand such that the vehicle approaches g2.land_alt_low. Without the below constraint, this would cause the vehicle to hover at g2.land_alt_low.
-    cmb_rate = AC_AttitudeControl::sqrt_controller(MAX(g2.land_alt_low,100)-get_alt_above_ground_cm(), pos_control->get_pos_z_p().kP(), pos_control->get_max_accel_z(), G_Dt);
-
-    // Constrain the demanded vertical velocity so that it is between the configured maximum descent speed and the configured minimum descent speed.
-    cmb_rate = constrain_float(cmb_rate, max_land_descent_velocity, -abs(g.land_speed));
-
-    // update altitude target and call position controller
-    pos_control->set_alt_target_from_climb_rate_ff(cmb_rate, G_Dt, true);
-    pos_control->update_z_controller();
-}
-
-
-/* 
 ** Name: bird_run_move_forward
 
-** Description: move the drone forward
+** Description: move the drone forward by changing the pitch of the drone
 
 ** Parameters:
     - target_roll: desired value for roll
@@ -362,31 +302,20 @@ void ModeBIRD::bird_run_descend_control()
 
 ** Notes:
  */
-void ModeBIRD::bird_run_move_forward(float target_roll, float target_pitch, float target_yaw_rate)
+void ModeBIRD::bird_run_move_forward(int counter)
 {
-    // apply simple mode transform to pilot inputs
-    update_simple_mode();
-    motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
-
-    // get pilot's desired yaw rate
-    if (!is_zero(target_yaw_rate)) 
+    if(counter >= 400)
     {
-        auto_yaw.set_mode(AUTO_YAW_HOLD);
+        gcs().send_text(MAV_SEVERITY_INFO, "Drone too far from wall");
+        gcs().send_text(MAV_SEVERITY_INFO, "Moving Forward");
     }
-
-
-    // call attitude controller
-    attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target_roll, target_pitch, target_yaw_rate);
-
-    // output pilot's throttle
-    attitude_control->set_throttle_out(0, true, g.throttle_filt);
 }
 
 
 /* 
 ** Name: bird_run_move_backward
 
-** Description: will move the drone backward
+** Description: will move the drone backward by changing the pitch of the drone
 
 ** Parameters:
     - target_roll: desired value for roll
@@ -398,58 +327,14 @@ void ModeBIRD::bird_run_move_forward(float target_roll, float target_pitch, floa
 
 ** Notes:
  */
-void ModeBIRD::bird_run_move_backward(float target_roll, float target_pitch, float target_yaw_rate)
+void ModeBIRD::bird_run_move_backward(int counter)
 {
-    // apply simple mode transform to pilot inputs
-    update_simple_mode();
-    motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
-
-    // get pilot's desired yaw rate
-    if (!is_zero(target_yaw_rate)) 
+    //
+    if(counter >= 400)
     {
-        auto_yaw.set_mode(AUTO_YAW_HOLD);
+        gcs().send_text(MAV_SEVERITY_INFO, "Drone too close from wall");
+        gcs().send_text(MAV_SEVERITY_INFO, "Moving Backward");
     }
-
-
-    // call attitude controller
-    attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target_roll, target_pitch, target_yaw_rate);
-
-    // output pilot's throttle
-    attitude_control->set_throttle_out(0, true, g.throttle_filt);   
 }
 
-
-/* 
-** Name: bird_run_move_right
-
-** Description: will move the drone to the right 
-
-** Parameters:
-    - target_roll: desired roll
-    - target_pitch: desired pitch
-    - target_yaw_rate: desired yaw
-
-** Return:
-    N/A
-
-** Notes:
- */
-void ModeBIRD::bird_run_move_right(float target_roll, float target_pitch, float target_yaw_rate)
-{
-    // apply simple mode transform to pilot inputs
-    update_simple_mode();
-    motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
-
-    // get pilot's desired yaw rate
-    if (!is_zero(target_yaw_rate)) 
-    {
-        auto_yaw.set_mode(AUTO_YAW_HOLD);
-    }
-
-    // call attitude controller
-    attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target_roll, target_pitch, target_yaw_rate);
-
-    // output pilot's throttle
-    attitude_control->set_throttle_out(0, true, g.throttle_filt);   
-}
 
