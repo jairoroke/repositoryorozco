@@ -92,12 +92,6 @@ bool ModeBIRD::init(bool ignore_checks)
  */
 void ModeBIRD::run()
 {
-    
-    // define roll, pitch, and yaw
-    float target_roll = 0.0f;
-    float target_pitch = 0.0f;
-    float target_yaw_rate = 0.0f;
-
     // capture current lidar reading
     busyFlag = sensor.garminGetBusyFlag();
 
@@ -156,17 +150,17 @@ void ModeBIRD::run()
             }
 
             // does the drone need to move forward to correct itself
-            if(reading =< 400 && reading >= 200)
+            if(reading <= 400 && reading >= 200)
             {
                 // move forward
-                bird_run_move_forward(counter);
+                bird_run_move_forward();
             }
 
             // does the drone need to move backward to correct itself
             if(reading <= 100)
             {
                 // move backward
-                bird_run_move_backward(counter);
+                bird_run_move_backward();
             }
 
             break;
@@ -220,10 +214,10 @@ void ModeBIRD::run()
             }
 
             // does the drone need to move forward to correct itself 
-            if(reading =< 400 && reading >= 200)
+            if(reading <= 400 && reading >= 200)
             {
                 // move forward
-                bird_run_move_forward(counter);
+                bird_run_move_forward();
             }
 
             // does the drone need to move backward to correct itself
@@ -231,7 +225,7 @@ void ModeBIRD::run()
             {
 
                 // move backward
-                bird_run_move_backward(counter);
+                bird_run_move_backward();
             }
 
             break;
@@ -302,7 +296,7 @@ void ModeBIRD::run()
 
 ** Notes:
  */
-void ModeBIRD::bird_run_move_forward(int counter)
+void ModeBIRD::bird_run_move_forward(void)
 {
     if(counter >= 400)
     {
@@ -327,7 +321,7 @@ void ModeBIRD::bird_run_move_forward(int counter)
 
 ** Notes:
  */
-void ModeBIRD::bird_run_move_backward(int counter)
+void ModeBIRD::bird_run_move_backward(void)
 {
     //
     if(counter >= 400)
@@ -336,5 +330,3 @@ void ModeBIRD::bird_run_move_backward(int counter)
         gcs().send_text(MAV_SEVERITY_INFO, "Moving Backward");
     }
 }
-
-
