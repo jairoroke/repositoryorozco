@@ -1529,8 +1529,8 @@ public:
     bool allows_arming(bool from_gcs) const override { return true; };
     bool is_autopilot() const override { return true; }
 
-    void bird_run_move_forward(int counter);
-    void bird_run_move_backward(int counter);
+    void bird_run_move_forward(void);
+    void bird_run_move_backward(void);
 
 protected:
 
