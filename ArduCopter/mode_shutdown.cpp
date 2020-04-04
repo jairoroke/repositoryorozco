@@ -123,4 +123,3 @@ void ModeShutdown::init_target()
     pos_control->get_stopping_point_xy(stopping_point);
     pos_control->set_xy_target(stopping_point.x, stopping_point.y);
 }
-
