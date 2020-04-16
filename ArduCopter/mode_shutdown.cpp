@@ -2,7 +2,7 @@
 ** Texas A&M University
 ** Team: Crane Tech
 ** Author: Luis Orozco
-** File: overlay.py
+** File: mode_shutdown.cpp
 ** Description: 
    Flight mode responsible for stopping the motors. Exact copy of mode_brake.cpp
    except different name, mode_shutdown.cpp
