@@ -1525,7 +1525,7 @@ public:
     virtual void run() override; // will be called at 400 Hz and should implement any pilot input decoding and then set potision and attitude targets
 
     bool requires_GPS() const override { return false; }
-    bool has_manual_throttle() const override { return true; }
+    bool has_manual_throttle() const override { return false; }
     bool allows_arming(bool from_gcs) const override { return true; };
     bool is_autopilot() const override { return true; }
 
@@ -1557,7 +1557,7 @@ public:
 
     bool requires_GPS() const override { return false; }
     bool has_manual_throttle() const override { return false; }
-    bool allows_arming(bool from_gcs) const override { return false; };
+    bool allows_arming(bool from_gcs) const override { return true; };
     bool is_autopilot() const override { return false; }
 
 protected:
