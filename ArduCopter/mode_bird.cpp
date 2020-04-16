@@ -2,7 +2,7 @@
 ** Texas A&M University
 ** Team: Crane Tech
 ** Author: Luis Orozco
-** File: overlay.py
+** File: mode_bird.cpp
 ** Description: 
    Flight mode responsible for simulating flight. A user must carry the drone and simulate
    the flight path. Used to test the logic and flow of software without outputting 
@@ -330,3 +330,4 @@ void ModeBIRD::bird_run_move_backward(void)
         gcs().send_text(MAV_SEVERITY_INFO, "Moving Backward");
     }
 }
+
