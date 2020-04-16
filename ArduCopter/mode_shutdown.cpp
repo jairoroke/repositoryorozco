@@ -4,8 +4,7 @@
 ** Author: Luis Orozco
 ** File: mode_shutdown.cpp
 ** Description: 
-   Flight mode responsible for stopping the motors. Exact copy of mode_brake.cpp
-   except different name, mode_shutdown.cpp
+   Flight mode responsible for stopping the motors.
  */
 #include "Copter.h"
 
